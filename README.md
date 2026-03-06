@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>THE KAVA POS FINAL</title>
+    <style>
+        :root { --bg: #050505; --panel: #111; --neon: #00f3ff; --purple: #bc13fe; --text: #fff; }
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        
+        body { background: var(--bg); color: var(--text); font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; }
+        
+        header { height: 50px; background: #000; border-bottom: 2px solid var(--neon); display: flex; justify-content: space-between; align-items: center; padding: 0 15px; flex-shrink: 0; }
+        
+        .main { display: flex; flex: 1; overflow: hidden; }
+        
+        /* Меню зліва */
+        .sidebar { width: 70px; background: var(--panel); border-right: 1px solid #222; overflow-y: auto; display: flex; flex-direction: column; }
+        .cat-btn { padding: 15px 5px; background: none; border: none; color: #555; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #1a1a1a; cursor: pointer; }
+        .cat-btn.active { color: var(--neon); border-left: 3px solid var(--neon); background: rgba(0,243,255,0.05); }
+
+        /* Сітка товарів */
+        .grid { flex: 1; padding: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; overflow-y: auto; align-content: start; }
+        .card { background: var(--panel); border-radius: 10px; padding: 10px; border: 1px solid #222; display: flex; flex-direction: column; gap: 8px; }
+        .card h3 { font-size: 13px; min-height: 30px; }
+        .sizes { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+        .s-btn { background: #1a1a25; border: 1px solid #333; color: #fff; padding: 6px 2px; border-radius: 5px; font-size: 10px; cursor: pointer; }
+        .s-btn:active { background: var(--neon); color: #000; }
+
+        /* Чек (Корзина) */
+        .cart-ui { position: fixed; right: -100%; top: 50px; bottom: 0; width: 100%; background: #000; z-index: 100; transition: 0.3s; display: flex; flex-direction: column; }
+        .cart-ui.open { right: 0; }
+        .cart-items { flex: 1; overflow-y: auto; padding: 15px; }
+        .cart-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #111; font-size: 14px; }
+
+        .footer { padding: 15px; background: #0a0a0f; border-top: 2px solid var(--purple); }
+        .row { display: flex; justify-content: space-between; margin-bottom: 10px; }
+        input { background: #000; border: 1px solid var(--neon); color: var(--neon); width: 80px; text-align: center; }
+        .pay-btn { width: 100%; padding: 15px; background: var(--neon); border: none; border-radius: 8px; font-weight: bold; font-size: 18px; cursor: pointer; }
+
+        .cart-toggle { position: fixed; bottom: 20px; right: 20px; width: 60px; height: 60px; background: var(--purple); border-radius: 50%; border: none; color: white; font-size: 24px; z-index: 110; box-shadow: 0 0 15px var(--purple); }
+    </style>
+</head>
+<body>
+
+<header>
+    <div style="color: var(--neon); font-weight: bold;">THE KAVA</div>
+    <div style="font-size: 14px;">КАСА: <span id="rev">0</span> ₴</div>
+</header>
+
+<div class="main">
+    <nav class="sidebar" id="cats"></nav>
+    <div class="grid" id="prods"></div>
+</div>
+
+<aside class="cart-ui" id="cart-ui">
+    <div class="cart-items" id="cart-list"></div>
+    <div class="footer">
+        <div class="row"><span>Знижка (₴):</span> <input type="number" id="disc" value="0" oninput="upd()"></div>
+        <div class="row"><span>Готівка:</span> <input type="number" id="cash" placeholder="0" oninput="upd()"></div>
+        <div class="row"><span>Решта:</span> <span id="change" style="color: var(--neon);">0 ₴</span></div>
+        <div class="row" style="font-size: 20px; font-weight: bold;"><span>РАЗОМ:</span> <span id="total">0</span></div>
+        <button class="pay-btn" onclick="pay()">ОПЛАТИТИ</button>
+        <button onclick="toggle()" style="width:100%; margin-top:10px; background:none; border:none; color:#555;">ЗАКРИТИ</button>
+    </div>
+</aside>
+
+<button class="cart-toggle" onclick="toggle()">🛒</button>
+
+<script>
+    const BOT_TOKEN = "8778379603:AAE4JwVMKR4F7eKYntNMpMenf2NM6B65hZM";
+    const CHAT_ID = "7568873881";
+
+    const MENU = {
+        "Кава": [
+            {n:"Еспресо", p:{S:35}}, {n:"Допіо", p:{S:55}}, {n:"Американо", p:{S:35, M:55}},
+            {n:"Капучино", p:{S:55, M:65, L:75}}, {n:"Лате", p:{S:55, M:65, L:75}},
+            {n:"Раф", p:{S:70, M:80, L:90}}, {n:"Флет Вайт", p:{S:65}}
+        ],
+        "Їжа": [{n:"Паніні", p:{"-":80}}, {n:"Бургер", p:{"-":85}}, {n:"Донер", p:{"-":120}}],
+        "Напої": [{n:"Коктейль", p:{"-":60}}, {n:"Вода", p:{"-":25}}],
+        "Додатки": [{n:"Мед", p:{"-":5}}, {n:"Сироп", p:{"-":5}}, {n:"Вершки", p:{"-":15}}]
+    };
+
+    let cart = [];
+    let curCat = "Кава";
+    let rev = parseFloat(localStorage.getItem('kava_rev')) || 0;
+
+    function render() {
+        const cB = document.getElementById('cats'); cB.innerHTML = '';
+        Object.keys(MENU).forEach(c => {
+            cB.innerHTML += `<button class="cat-btn ${c===curCat?'active':''}" onclick="curCat='${c}';render()">${c}</button>`;
+        });
+
+        const pB = document.getElementById('prods'); pB.innerHTML = '';
+        MENU[curCat].forEach(item => {
+            let btns = '';
+            for(let s in item.p) btns += `<button class="s-btn" onclick="add('${item.n} ${s}', ${item.p[s]})">${s}<br>${item.p[s]}₴</button>`;
+            pB.innerHTML += `<div class="card"><h3>${item.n}</h3><div class="sizes">${btns}</div></div>`;
+        });
+        document.getElementById('rev').innerText = rev;
+    }
+
+    function add(n, p) {
+        let x = cart.find(f => f.n === n);
+        if(x) x.q++; else cart.push({n, p, q:1});
+        upd();
+    }
+
+    function upd() {
+        const list = document.getElementById('cart-list'); list.innerHTML = '';
+        let sub = 0;
+        cart.forEach((x, i) => {
+            sub += x.p * x.q;
+            list.innerHTML += `<div class="cart-row"><span>${x.n} x${x.q}</span><span>${x.p*x.q}₴ <b onclick="cart.splice(${i},1);upd()" style="color:red">✕</b></span></div>`;
+        });
+        let d = parseInt(document.getElementById('disc').value) || 0;
+        let t = Math.max(0, sub - d);
+        document.getElementById('total').innerText = t + " ₴";
+        let c = parseFloat(document.getElementById('cash').value) || 0;
+        document.getElementById('change').innerText = (c > t ? (c - t) : 0) + " ₴";
+    }
+
+    function toggle() { document.getElementById('cart-ui').classList.toggle('open'); }
+
+    function pay() {
+        if(!cart.length) return;
+        let t = document.getElementById('total').innerText;
+        let msg = `🧾 ЧЕК: ${t}\n`;
+        cart.forEach(x => msg += `• ${x.n} x${x.q}\n`);
+        
+        fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(msg)}`);
+        
+        rev += parseInt(t);
+        localStorage.setItem('kava_rev', rev);
+        alert("ОПЛАЧЕНО!");
+        cart = []; document.getElementById('cash').value = ''; document.getElementById('disc').value = 0;
+        upd(); render(); toggle();
+    }
+
+    render();
+</script>
+</body>
+</html>
